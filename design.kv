@@ -1,0 +1,51 @@
+#:kivy 1.10.0
+
+RelativeLayout:
+	canvas.before:
+		Rectangle:
+			pos: self.pos
+			size: self.size
+			source: 'img/img1_blur.jpg'
+	ResetButton:
+		pos_hint: {'center_x': 0.25, 'center_y': 0.8}
+		size_hint: .15, .1
+		background_normal: 'img/alpha.png'
+		Image:
+			source: 'img/reset.png'
+			size: self.parent.width, self.parent.height
+			center: self.parent.center_x, self.parent.center_y
+	PlayButton:
+		pos_hint: {'center_x': 0.5, 'center_y': 0.8}
+		size_hint: .15, .1
+		background_normal: 'img/alpha.png'
+		Image:
+			id: play_pause
+			source: 'img/play.png'
+			size: self.parent.width, self.parent.height
+			center: self.parent.center_x, self.parent.center_y
+	ChangeButton:
+		pos_hint: {'center_x': 0.75, 'center_y': 0.8}
+		size_hint: .15, .1
+		background_normal: 'img/alpha.png'
+		Image:
+			source: 'img/change.png'
+			size: self.parent.width, self.parent.height
+			center: self.parent.center_x, self.parent.center_y
+	Label:
+		id: time
+		text: '00:00:12'
+		pos_hint: {'center_x': 0.5, 'center_y': 0.68}
+	ProgressBar:
+		pos_hint: {'center_x': 0.5, 'center_y': 0.65}
+		size_hint: .7, None
+		max: 100
+		value: 0
+	Button:
+		pos_hint: {'center_x': 0.15, 'center_y': 0.2}
+		size_hint: .15, .1
+		background_normal: 'img/alpha.png'
+		Image:
+			source: 'img/settings.png'
+			size: self.parent.width, self.parent.height
+			center: self.parent.center_x,  self.parent.center_y
+			
