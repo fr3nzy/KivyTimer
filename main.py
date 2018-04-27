@@ -6,8 +6,7 @@ from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.clock import Clock
-
-Window.size = (350, 600)
+from kivy.core.audio import SoundLoader
 
 
 class Timer:
@@ -16,13 +15,9 @@ class Timer:
 		# countdown timer
 		self.time = self.app.root.ids.time.text # time label
 		self.hours = int(self.time[0] + self.time[1]) # xx:00:00
-		self.minutes = int(self.time[-5] + self.time[-4]) # 00:xx:00
-		self.seconds = int(self.time[-2] + self.time[-1])  # 00:00:xx
+		self.minutes = int(self.time[3] + self.time[4]) # 00:xx:00
+		self.seconds = int(self.time[6] + self.time[7])  # 00:00:xx
 		
-		# TODO TODO TODO TODO TODO
-		total_seconds = (self.hours*60*60) + (self.minutes*60) + (self.seconds)
-		self.app.root.ids.timer_progress.max = total_seconds # max value for ProgressBar
-
 		self.reminder_ctr = (self.hours*60*60) + (self.minutes*60) + (self.seconds) # total seconds
 		reminder_text = self.app.root.ids.reminder_spinner.text
 		if reminder_text not in 'Remind every.. [Off]':
@@ -53,9 +48,12 @@ class Timer:
 			return str(data) if len(str(data)) == 2 else '0' + str(data)
 		
 		# reminder alarm - result = self.reminder after self.reminder has passed
-		try:
-			if (self.reminder_ctr - self.seconds) == self.reminder: 
-				print('woo')
+		try: #TODO TODO TODO using more than 2 min reminder does not ring at 1m:30s - 2 bells??
+			if (((self.reminder_ctr - self.seconds) == self.reminder and self.seconds is not 0) or 
+					(self.seconds == 0 and self.minutes is not 0) or 
+					(self.seconds == 0 and self.minutes == 0 and self.hours is not 0)): # not 0 to avoid conflicts with main alarm
+				reminder_bell = SoundLoader.load('content/Bell1.wav')
+				reminder_bell.play()
 				self.reminder_ctr -= self.reminder
 		except Exception:
 			pass
@@ -64,6 +62,9 @@ class Timer:
 		self.app.root.ids.time.text = label_format(self.hours) + ':' + label_format(self.minutes) + ':' + label_format(self.seconds)
 		
 		if self.seconds == 0 and self.minutes == 0 and self.hours == 0: # countdown ended
+			alarm = SoundLoader.load('content/meditation_tone.wav')
+			alarm.play()
+			self.app.root.ids.play_pause.source = 'img/play.png'
 			self.stop()	
 		
 	def stop(self):
@@ -76,7 +77,7 @@ class SetTime(Popup):
 		
 		self.txt_input = TextInput(hint_text='hh:mm:ss', multiline=False) 
 		confirm_btn = Button(text='Confirm')
-		confirm_btn.bind(on_press=self.btn_on_press)
+		confirm_btn.bind(on_press=self.confirm_btn_press)
 		
 		boxlayout = BoxLayout(orientation='vertical', spacing=8, padding=(0,8,0,0))
 		boxlayout.add_widget(self.txt_input)
@@ -89,10 +90,16 @@ class SetTime(Popup):
 	def close_popup(self):	
 		self.popup.dismiss()
 	
-	def btn_on_press(self, widget):
+	def confirm_btn_press(self, widget):
 		app = App.get_running_app()
 		app.root.ids.time.text = self.txt_input.text
+		
+		# max value for ProgressBar = total seconds = hours + min + secs
+		time_set = app.root.ids.time.text
+		total_seconds = (int(time_set[0]+time_set[1])*60*60) + (int(time_set[3]+time_set[4])*60) + (int(time_set[6] + time_set[7]))
+		app.root.ids.timer_progress.max = total_seconds 
 		app.root.ids.timer_progress.value = 0
+		
 		self.close_popup()
 
 
