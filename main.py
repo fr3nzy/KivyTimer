@@ -18,7 +18,7 @@ class Timer:
 		self.minutes = int(self.time[3] + self.time[4]) # 00:xx:00
 		self.seconds = int(self.time[6] + self.time[7])  # 00:00:xx
 		
-		self.reminder_ctr = (self.hours*60*60) + (self.minutes*60) + (self.seconds) # total seconds
+		self.current_total = (self.hours*60*60) + (self.minutes*60) + (self.seconds) # total seconds
 		reminder_text = self.app.root.ids.reminder_spinner.text
 		if reminder_text not in 'Remind every.. [Off]':
 			if reminder_text[2] == 'm' or reminder_text[3] == 'm':	# 1 or 2 digit number 'm'inutes
@@ -41,22 +41,24 @@ class Timer:
 				self.app.root.ids.play_pause.source = 'img/play.png'
 				return self.stop()
 		
+		self.current_total -= 1 
 		self.seconds -= 1 
 		self.app.root.ids.timer_progress.value += 1
 		
 		def label_format(data): # add '0' before time if only 1 digit present (below 10)
 			return str(data) if len(str(data)) == 2 else '0' + str(data)
 		
-		# reminder alarm - result = self.reminder after self.reminder has passed
-		try: #TODO TODO TODO using more than 2 min reminder does not ring at 1m:30s - 2 bells??
-			if (((self.reminder_ctr - self.seconds) == self.reminder and self.seconds is not 0) or 
-					(self.seconds == 0 and self.minutes is not 0) or 
-					(self.seconds == 0 and self.minutes == 0 and self.hours is not 0)): # not 0 to avoid conflicts with main alarm
+		# reminder alarm -> self.reminder after self.reminder has passed -> (seconds_set - (seconds_set - seconds_passed)) - reminder_value
+		try: 
+			with open('content/total_time_set', 'r') as f: 
+				total_seconds = int(f.read())
+			if (((total_seconds - self.current_total) == self.reminder and self.current_total is not 0)): # not 0 to avoid conflicts with main alarm 
+				with open('content/total_time_set', 'w') as f: 
+					f.write(str(total_seconds - self.reminder))
 				reminder_bell = SoundLoader.load('content/Bell1.wav')
 				reminder_bell.play()
-				self.reminder_ctr -= self.reminder
-		except Exception:
-			pass
+		except Exception as e:
+			print(e)
 		
 		# update label	
 		self.app.root.ids.time.text = label_format(self.hours) + ':' + label_format(self.minutes) + ':' + label_format(self.seconds)
@@ -71,7 +73,7 @@ class Timer:
 		self.clock_event.cancel()
 			
 
-class SetTime(Popup):
+class SetTime(Popup):	
 	def __init__(self):
 		super(SetTime, self).__init__()
 		
@@ -94,14 +96,16 @@ class SetTime(Popup):
 		app = App.get_running_app()
 		app.root.ids.time.text = self.txt_input.text
 		
-		# max value for ProgressBar = total seconds = hours + min + secs
-		time_set = app.root.ids.time.text
-		total_seconds = (int(time_set[0]+time_set[1])*60*60) + (int(time_set[3]+time_set[4])*60) + (int(time_set[6] + time_set[7]))
+		total_seconds = ((int(self.txt_input.text[0]+  self.txt_input.text[1])*60*60) + 
+										(int(self.txt_input.text[3] + self.txt_input.text[4])*60) +
+										(int(self.txt_input.text[6] + self.txt_input.text[7])))
+		with open('content/total_time_set', 'w') as f:  # total_seconds must not be dependent on play_pause
+			f.write(str(total_seconds))
+		
 		app.root.ids.timer_progress.max = total_seconds 
 		app.root.ids.timer_progress.value = 0
-		
 		self.close_popup()
-
+		
 
 class ChangeButton(Button):
 	def on_release(self):
