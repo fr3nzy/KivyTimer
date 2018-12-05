@@ -1,12 +1,18 @@
 from kivy.app import App
+from kivy.config import Config
+Config.set('graphics', 'width', 450)
+Config.set('graphics', 'height', 650)
 from kivy.lang.builder import Builder
 from kivy.core.window import Window
 from kivy.uix.popup import Popup
 from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.core.audio import SoundLoader
+
+import re
 
 
 class Timer:
@@ -71,21 +77,66 @@ class Timer:
 		
 	def stop(self):
 		self.clock_event.cancel()
+		
+		
+class CustomInput(TextInput):
+	def insert_text(self, string, from_undo=False):
+		if len(self.text) == 2 and re.compile('0\\d').search(self.text) is None: # is xx already present?
+			return # don't allow any more chars to be entered if first digit is not 0
+			
+		if re.compile('\\d').search(string): # is inputted char a digit 0-9? 			
+			if self.text == '':
+				self.text = '0' + string # add 0 before to keep formatting after simple	
+				return
+			if re.compile('0\\d').search(self.text): # format is 0x?
+				if re.compile('0[0-5]').search(self.text) is None: # format of 2nd char more than 0-5?
+					self.text = '0' + string # remove the original 2nd char as format can't be more than '59'
+				else:	 # format of 2nd char IS 0-5
+					self.text = self.text[-1] + string # remove leading zero
+			else: # if backspace and self.text is 1 char
+				self.text = self.text + string
+				return 
+			
 			
 
 class SetTime(Popup):	
 	def __init__(self):
 		super(SetTime, self).__init__()
 		
-		self.txt_input = TextInput(hint_text='hh:mm:ss', multiline=False) 
-		confirm_btn = Button(text='Confirm')
+		self.app = App.get_running_app()
+		
+		# size of widgets must be in relation to window size. since most phones have similar screen proportions, you just need to ensure that the widgets are scaled in proportion to the entire window
+		# the user wont be changing the actual window size, just the pixel density will change across devices, so you just need to ensure that what look aesthetically pleasing for one phone sized window is created based on window size.
+		self.hrs_input = CustomInput(hint_text='hh', multiline=False, size_hint=(None,None), \
+											size=(self.app.root.width/16,self.app.root.height/22))
+		self.hrs_input.pos = (self.app.root.width / 2.35) - (self.hrs_input.width / 2), \
+									(self.app.root.height / 2) - (self.hrs_input.height / 2)
+		self.min_input = CustomInput(hint_text='mm', multiline=False, size_hint=(None,None), \
+											size=(self.app.root.width/16,self.app.root.height/22)) 
+		self.min_input.pos = (self.app.root.width / 2) - (self.min_input.width / 2), \
+									(self.app.root.height / 2) - (self.min_input.height / 2)
+		self.sec_input = CustomInput(hint_text='ss', multiline=False, size_hint=(None,None), \
+											size=(self.app.root.width/16,self.app.root.height/22)) 
+		self.sec_input.pos = (self.app.root.width / 1.75) - (self.sec_input.width / 2), \
+									(self.app.root.height / 2) - (self.sec_input.height / 2)
+		
+		self.input_layout = FloatLayout(size_hint_x=None)
+		self.input_layout.add_widget(self.hrs_input)
+		self.input_layout.add_widget(self.min_input)
+		self.input_layout.add_widget(self.sec_input)
+		
+		confirm_btn = Button(text='Confirm', size_hint=(None,None))
+		confirm_btn.size = ((self.app.root.width / 1.55), (self.app.root.height / 14))
+		confirm_btn.pos = ((self.app.root.width / 2) - (confirm_btn.width / 2), \
+									(self.app.root.height / 2.35) - (confirm_btn.height / 2))
 		confirm_btn.bind(on_press=self.confirm_btn_press)
 		
-		boxlayout = BoxLayout(orientation='vertical', spacing=8, padding=(0,8,0,0))
-		boxlayout.add_widget(self.txt_input)
+		boxlayout = FloatLayout()
+		boxlayout.add_widget(self.	input_layout)
 		boxlayout.add_widget(confirm_btn)
 		
 		self.popup = Popup(title='Set time period', content=boxlayout, size_hint=(.7, .25))
+
 	
 	def load_popup(self):
 		self.popup.open()
@@ -94,11 +145,10 @@ class SetTime(Popup):
 	
 	def confirm_btn_press(self, widget):
 		app = App.get_running_app()
-		app.root.ids.time.text = self.txt_input.text
+		app.root.ids.time.text = ':'.join(map(str.strip, [self.hrs_input.text, self.min_input.text, self.sec_input.text]))
+		print(':'.join(map(str.strip, [self.hrs_input.text, self.min_input.text, self.sec_input.text])))
 		
-		total_seconds = ((int(self.txt_input.text[0]+  self.txt_input.text[1])*60*60) + 
-										(int(self.txt_input.text[3] + self.txt_input.text[4])*60) +
-										(int(self.txt_input.text[6] + self.txt_input.text[7])))
+		total_seconds = (int(self.hrs_input.text)*60*60) + (int(self.min_input.text)*60) + int(self.sec_input.text)
 		with open('content/total_time_set', 'w') as f:  # total_seconds must not be dependent on play_pause
 			f.write(str(total_seconds))
 		
