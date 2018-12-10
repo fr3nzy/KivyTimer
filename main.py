@@ -1,7 +1,5 @@
 from kivy.app import App
 from kivy.config import Config
-Config.set('graphics', 'width', 450)
-Config.set('graphics', 'height', 650)
 from kivy.lang.builder import Builder
 from kivy.core.window import Window
 from kivy.uix.popup import Popup
@@ -9,10 +7,11 @@ from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.clock import Clock
 from kivy.core.audio import SoundLoader
-
-import re
+from kivy.uix.spinner import Spinner
+from kivy.uix.label import Label
+from kivy.clock import Clock
+import re, android
 
 
 class Timer:
@@ -31,6 +30,11 @@ class Timer:
 				self.reminder = int(reminder_text[0] + reminder_text[1]) * 60  # to seconds
 			else: # 's'econds
 				self.reminder = int(reminder_text[0] + reminder_text[1])
+			with open('content/reminder', 'w') as f:
+					f.write(str(self.reminder))
+		else:
+			with open('content/reminder', 'w') as f:
+					f.write('none')
 		
 		self.clock_event = Clock.schedule_interval(self.update_time, 1) # call every second
 				
@@ -45,6 +49,8 @@ class Timer:
 				self.seconds = 60
 			else: # if play is pressed when 00:00:00
 				self.app.root.ids.play_pause.source = 'img/play.png'
+				with open('content/playing?', 'w') as f:
+					f.write('no')
 				return self.stop()
 		
 		self.current_total -= 1 
@@ -73,10 +79,13 @@ class Timer:
 			alarm = SoundLoader.load('content/meditation_tone.wav')
 			alarm.play()
 			self.app.root.ids.play_pause.source = 'img/play.png'
+			with open('content/playing?', 'w') as f:
+				f.write('no')
 			self.stop()	
 		
 	def stop(self):
 		self.clock_event.cancel()
+	
 		
 		
 class CustomInput(TextInput):
@@ -156,6 +165,38 @@ class SetTime(Popup):
 		app.root.ids.timer_progress.value = 0
 		self.close_popup()
 		
+		
+		
+class SettingsPopup(Popup):
+	def __init__(self):
+		super().__init__()
+		self.app = App.get_running_app()
+		
+		tone_label = Label(text='End tone ', size_hint=(None,None))
+		tone_label.pos = (self.app.root.width / 3.3) - (tone_label.width / 2), \
+								(self.app.root.height / 1.4) - (tone_label.height / 2)
+		tone_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'),size_hint=(None,None), \
+								size=(self.app.root.width / 3, self.app.root.height / 18))
+		tone_spinner.pos = (self.app.root.width / 1.7) - (tone_spinner.width / 2), \
+									(self.app.root.height / 1.4) - (tone_spinner.height / 2)
+		notif_label = Label(text='Notif tone ', size_hint=(None,None))
+		notif_label.pos = (self.app.root.width / 3.3) - (tone_label.width / 2), \
+								(self.app.root.height / 1.7) - (tone_label.height / 2)
+		notif_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'), size_hint=(None,None), \
+								size=(self.app.root.width / 3, self.app.root.height / 18))
+		notif_spinner.pos = (self.app.root.width / 1.7) - (notif_spinner.width / 2), \
+									(self.app.root.height / 1.7) - (notif_spinner.height / 2)
+		
+		floatlayout = FloatLayout()
+		floatlayout.add_widget(tone_label)
+		floatlayout.add_widget(tone_spinner)
+		floatlayout.add_widget(notif_label)
+		floatlayout.add_widget(notif_spinner)
+		
+		self.popup = Popup(title='settings', content=floatlayout, size_hint=(.7, .7))
+		self.popup.open()
+		
+
 
 class ChangeButton(Button):
 	def on_release(self):
@@ -163,17 +204,23 @@ class ChangeButton(Button):
 		if app.root.ids.play_pause.source == 'img/play.png':
 			SetTime().load_popup()
 		
+
 		
 class PlayButton(Button, Timer):
 	def on_press(self):
 		app = App.get_running_app()
 		if app.root.ids.play_pause.source == 'img/play.png':
 			app.root.ids.play_pause.source = 'img/pause.png'
+			with open('content/playing?', 'w') as f:
+				f.write('yes')
 			self.start()
 		else:
 			app.root.ids.play_pause.source = 'img/play.png'
+			with open('content/playing?', 'w') as f:
+				f.write('no')
 			self.stop()
 			
+
 
 class ResetButton(Button):
 	def on_press(self):
@@ -183,9 +230,29 @@ class ResetButton(Button):
 			app.root.ids.timer_progress.value = 0
 
 
+
+class SettingsButton(Button):
+	def on_release(self):
+		SettingsPopup()
+
+
+
 class BreathTimer(App):
 	def build(self):
+		with open('content/playing', 'w') as f:
+			f.write('no')
 		return Builder.load_file('design.kv')
+		
+	def on_resume(self):
+		with open('content/playing', 'r') as f:
+			go_ahead = f.read()
+		
+	def on_pause(self):
+		with open('content/playing', 'r') as f:
+			go_ahead = f.read()
+		if go_ahead == 'yes':  # is countdown actaully in motion?
+			android.start_service(title='countdown timer')
+		
 		
 		
 BreathTimer().run()
