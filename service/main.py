@@ -34,7 +34,7 @@ for i in range(current_total):
 				SystemClock.sleep(100)
 				print('reminder')
 			reminder_bell = SoundLoader.load('content/Bell1.wav')
-			reminder_bell.play()
+			reminder_bell.play() 
 	except Exception as e: # reminder is 'none'
 		print(e)
 		
