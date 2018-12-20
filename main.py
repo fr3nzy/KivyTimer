@@ -1,4 +1,17 @@
-vfrom kivy.app import App
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+from kivy.app import App
 from kivy.config import Config
 from kivy.lang.builder import Builder
 from kivy.core.window import Window
@@ -8,12 +21,35 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.core.audio import SoundLoader
+from kivy.uix.widget import Widget
 from kivy.uix.spinner import Spinner
 from kivy.uix.label import Label
+from kivy.uix.checkbox import CheckBox
 from kivy.clock import Clock
-import re, android
+import re
+from android.runnable import run_on_ui_thread
 from jnius import autoclass
 
+end_tone, remind_tone = 'content/bell_sms.mp3',0 # to-be globals for sound url
+# changes to ui must be made in android main thread
+# apparently such is done with such decorator
+# no idea how the android main thread works with kivy main thread..?
+@run_on_ui_thread
+def keepScreenOn():
+	CurrentActivity  = autoclass('org.kivy.android.PythonActivity').mActivity
+	view = CurrentActivity.getWindow().getDecorView()
+	view.setKeepScreenOn(True)
+
+
+# TODO
+# if on_pause activated, attempt MediaPlayer usage in background thread when program pauses - by using the simple MediaPlayer call or kivy audiostream?
+# popup appears on first run, letting the user know the program only runs as a gui & back, home, screen off, will quit the app
+# popup has checkbox 'don't show this again'
+# use raleway font across entire app
+# trim tone shown by default to just the name, not the url, so doesnt overflow
+# complete settings popup, add volume slider for reminder alarm, change background option..?
+# make number keypad present when entering the time - https://github.com/kivy/kivy/issues/5771
+# in order to learn about databases in python, store times and settings in database? follow document on MySQLite documentation (link in firefox)
 
 class Timer:
 	def start(self):
@@ -33,9 +69,6 @@ class Timer:
 				self.reminder = int(reminder_text[0] + reminder_text[1])
 			with open('content/reminder', 'w') as f:
 					f.write(str(self.reminder))
-		else:
-			with open('content/reminder', 'w') as f:
-					f.write('none')
 		
 		self.clock_event = Clock.schedule_interval(self.update_time, 1) # call every second
 				
@@ -50,8 +83,6 @@ class Timer:
 				self.seconds = 60
 			else: # if play is pressed when 00:00:00
 				self.app.root.ids.play_pause.source = 'img/play.png'
-				with open('content/playing?', 'w') as f:
-					f.write('no')
 				return self.stop()
 		
 		self.current_total -= 1 
@@ -77,11 +108,9 @@ class Timer:
 		self.app.root.ids.time.text = label_format(self.hours) + ':' + label_format(self.minutes) + ':' + label_format(self.seconds)
 		
 		if self.seconds == 0 and self.minutes == 0 and self.hours == 0: # countdown ended
-			alarm = SoundLoader.load('content/meditation_tone.wav')
+			alarm = SoundLoader.load(end_tone)
 			alarm.play()
 			self.app.root.ids.play_pause.source = 'img/play.png'
-			with open('content/playing?', 'w') as f:
-				f.write('no')
 			self.stop()	
 		
 	def stop(self):
@@ -90,6 +119,12 @@ class Timer:
 		
 		
 class CustomInput(TextInput):
+	def __init__(self, **kwargs):
+		# have to pass **kwargs to super() because kwargs would just be a dictionary, so if arguments are __init__(kwarg1=something, kwarg2=something), 
+		# a dict is passed, which ofc won't work as dict is positional argument
+		# likewise if arguments are __init__(**kwargs), passing a dict is again, a positional argument, which won't work
+		super().__init__(**kwargs)
+		
 	def insert_text(self, string, from_undo=False):
 		if len(self.text) == 2 and re.compile('0\\d').search(self.text) is None: # is xx already present?
 			return # don't allow any more chars to be entered if first digit is not 0
@@ -118,7 +153,7 @@ class SetTime(Popup):
 		# size of widgets must be in relation to window size. since most phones have similar screen proportions, you just need to ensure that the widgets are scaled in proportion to the entire window
 		# the user wont be changing the actual window size, just the pixel density will change across devices, so you just need to ensure that what look aesthetically pleasing for one phone sized window is created based on window size.
 		self.hrs_input = CustomInput(hint_text='hh', multiline=False, size_hint=(None,None), \
-											size=(self.app.root.width/16,self.app.root.height/22))
+											size=(self.app.root.width/16,self.app.root.height/22), input_type='number')
 		self.hrs_input.pos = (self.app.root.width / 2.35) - (self.hrs_input.width / 2), \
 									(self.app.root.height / 2) - (self.hrs_input.height / 2)
 		self.min_input = CustomInput(hint_text='mm', multiline=False, size_hint=(None,None), \
@@ -155,8 +190,12 @@ class SetTime(Popup):
 	
 	def confirm_btn_press(self, widget):
 		app = App.get_running_app()
+		# in case user didn't manually set '00'
+		for inpt in [self.hrs_input, self.min_input, self.sec_input]:
+			if inpt.text == '':
+				inpt.text = '00'
+				
 		app.root.ids.time.text = ':'.join(map(str.strip, [self.hrs_input.text, self.min_input.text, self.sec_input.text]))
-		print(':'.join(map(str.strip, [self.hrs_input.text, self.min_input.text, self.sec_input.text])))
 		
 		total_seconds = (int(self.hrs_input.text)*60*60) + (int(self.min_input.text)*60) + int(self.sec_input.text)
 		with open('content/total_time_set', 'w') as f:  # total_seconds must not be dependent on play_pause
@@ -168,34 +207,69 @@ class SetTime(Popup):
 		
 		
 		
-class SettingsPopup(Popup):
+class SettingsPopup(Widget):
 	def __init__(self):
 		super().__init__()
 		self.app = App.get_running_app()
 		
+		
 		tone_label = Label(text='End tone ', size_hint=(None,None))
 		tone_label.pos = (self.app.root.width / 3.3) - (tone_label.width / 2), \
 								(self.app.root.height / 1.4) - (tone_label.height / 2)
-		tone_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'),size_hint=(None,None), \
-								size=(self.app.root.width / 3, self.app.root.height / 18))
+		tone_spinner = Spinner(values=('sitar flute', 'sitar', 'tone 1', 'classical', 'tone 2', 'tone 3'),size_hint=(None,None), \
+								size=(self.app.root.width / 3, self.app.root.height / 18), text=end_tone)
 		tone_spinner.pos = (self.app.root.width / 1.7) - (tone_spinner.width / 2), \
 									(self.app.root.height / 1.4) - (tone_spinner.height / 2)
+		tone_spinner.bind(text=self.tone_set)
+	
 		notif_label = Label(text='Notif tone ', size_hint=(None,None))
 		notif_label.pos = (self.app.root.width / 3.3) - (tone_label.width / 2), \
-								(self.app.root.height / 1.7) - (tone_label.height / 2)
+								(self.app.root.height / 1.65) - (tone_label.height / 2)
 		notif_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'), size_hint=(None,None), \
 								size=(self.app.root.width / 3, self.app.root.height / 18))
 		notif_spinner.pos = (self.app.root.width / 1.7) - (notif_spinner.width / 2), \
-									(self.app.root.height / 1.7) - (notif_spinner.height / 2)
+									(self.app.root.height / 1.65) - (notif_spinner.height / 2)
+									
+		background_label = Label(text='Background ', size_hint=(None,None))
+		background_label.pos = (self.app.root.width / 3.3) - (background_label.width / 2), \
+								(self.app.root.height / 2) - (background_label.height / 2)
+		background_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'), size_hint=(None,None), \
+								size=(self.app.root.width / 3, self.app.root.height / 18))
+		background_spinner.pos = (self.app.root.width / 1.7) - (background_spinner.width / 2), \
+									(self.app.root.height / 2) - (background_spinner.height / 2)
+		
+		close_btn = Button(text='[ x ]', size_hint=(None,None), \
+									size=(self.app.root.width/6, self.app.root.height/18))
+		close_btn.pos = (self.app.root.width / 1.35) - (close_btn.width / 2), \
+								(self.app.root.height / 5) - (close_btn.height / 2)
+		close_btn.bind(on_release=lambda instance: self.popup.dismiss())
+		about_btn = Button(text='about?', size_hint=(None,None), background_normal='img/alpha.png', \
+									size=(self.app.root.width/6, self.app.root.height/18))
+		about_btn.bind(on_release=self.about_dialog)
+		about_btn.pos = (self.app.root.width/4) - (about_btn.width / 2), \
+								(self.app.root.height/5) - (about_btn.height / 2)
 		
 		floatlayout = FloatLayout()
-		floatlayout.add_widget(tone_label)
-		floatlayout.add_widget(tone_spinner)
-		floatlayout.add_widget(notif_label)
-		floatlayout.add_widget(notif_spinner)
+		for widget in [tone_label, tone_spinner, notif_label, notif_spinner, close_btn, 
+								about_btn, background_label, background_spinner]:
+			floatlayout.add_widget(widget)
 		
-		self.popup = Popup(title='settings', content=floatlayout, size_hint=(.7, .7))
+		self.popup = Popup(title='settings', content=floatlayout, size_hint=(.7, .7),auto_dismiss=False)
 		self.popup.open()
+		
+	
+	def tone_set(self, spinner, text):
+		tone_urls = ['content/sitar_flute_rhythm_2.mp3', 'content/sitar.mp3', 'content/good-morning.mp3', \
+							'content/classical_music.mp3', 'content/bell_sms.mp3', 'content/bell_message.mp3']
+		global end_tone
+		end_tone = tone_urls[spinner.values.index(text)]  # tone_urls ordered same as spinner.values so selecting value will select appropriate url from tone_urls
+	
+		
+	def about_dialog(self, instance):
+		label = Label(text='''Meditate is a timer - primarily for meditation use  Mediate was developed using Kivy and Python3, by a novice fellow seeking to further their programming \'expertise\' \n Work is still in progress :) \n\n[i]Copyright © 2018  [b]noTthis?[/b]\nLicensed under GPLv3[/i]''',halign='center', valign='center', markup=True)
+		label.text_size = self.app.root.width / 2.5, self.app.root.height / 2.5
+		popup = Popup(title='About', content=label, size_hint=(0.5,0.5))
+		popup.open()
 		
 
 
@@ -212,13 +286,9 @@ class PlayButton(Button, Timer):
 		app = App.get_running_app()
 		if app.root.ids.play_pause.source == 'img/play.png':
 			app.root.ids.play_pause.source = 'img/pause.png'
-			with open('content/playing?', 'w') as f:
-				f.write('yes')
 			self.start()
 		else:
 			app.root.ids.play_pause.source = 'img/play.png'
-			with open('content/playing?', 'w') as f:
-				f.write('no')
 			self.stop()
 			
 
@@ -232,6 +302,16 @@ class ResetButton(Button):
 
 
 
+class CustomCheckBox(CheckBox):
+	def on_state(self, widget, value):
+		if value=='down':
+			App.get_running_app().root.ids.reminder_spinner.disabled = False
+			self.active = True
+		else:
+			App.get_running_app().root.ids.reminder_spinner.disabled = True
+			self.active = False
+
+
 class SettingsButton(Button):
 	def on_release(self):
 		SettingsPopup()
@@ -240,22 +320,9 @@ class SettingsButton(Button):
 
 class BreathTimer(App):
 	def build(self):
-		with open('content/playing?', 'w') as f:
-			f.write('no')
+		keepScreenOn()
 		return Builder.load_file('design.kv')
 		
-	def on_resume(self):
-		with open('content/playing?', 'r') as f:
-			go_ahead = f.read()
-		
-	def on_pause(self):
-		with open('content/playing?', 'r') as f:
-			go_ahead = f.read()
-		if go_ahead == 'yes':  # is countdown actaully in motion?
-			service = autoclass('org.example.myaasdqpp.ServiceMyservice')
-			mActivity = autoclass('org.kivy.android.PythonActivity').mActivity
-			service.start(mActivity, '')
-		return True
 		
 		
 		
