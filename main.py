@@ -21,16 +21,19 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.core.audio import SoundLoader
+from kivy.properties import ListProperty
 from kivy.uix.widget import Widget
 from kivy.uix.spinner import Spinner
 from kivy.uix.label import Label
 from kivy.uix.checkbox import CheckBox
 from kivy.clock import Clock
-import re
+import re, sqlite3
 from android.runnable import run_on_ui_thread
 from jnius import autoclass
 
-end_tone, remind_tone = 'content/bell_sms.mp3',0 # to-be globals for sound url
+
+# globals for sound urls & names
+end_tone = remind_tone = [None,None] 
 # changes to ui must be made in android main thread
 # apparently such is done with such decorator
 # no idea how the android main thread works with kivy main thread..?
@@ -45,11 +48,9 @@ def keepScreenOn():
 # if on_pause activated, attempt MediaPlayer usage in background thread when program pauses - by using the simple MediaPlayer call or kivy audiostream?
 # popup appears on first run, letting the user know the program only runs as a gui & back, home, screen off, will quit the app
 # popup has checkbox 'don't show this again'
-# use raleway font across entire app
-# trim tone shown by default to just the name, not the url, so doesnt overflow
-# complete settings popup, add volume slider for reminder alarm, change background option..?
+# understand how the ListProperty triggers the app.root.source to update its app.background[0] (which is the listproperty) when ListProperty changes
+# stop app from crashing when for example, confirm button for time entry is pressed with no entered time
 # make number keypad present when entering the time - https://github.com/kivy/kivy/issues/5771
-# in order to learn about databases in python, store times and settings in database? follow document on MySQLite documentation (link in firefox)
 
 class Timer:
 	def start(self):
@@ -99,7 +100,7 @@ class Timer:
 			if (((total_seconds - self.current_total) == self.reminder and self.current_total is not 0)): # not 0 to avoid conflicts with main alarm 
 				with open('content/total_time_set', 'w') as f: 
 					f.write(str(total_seconds - self.reminder))
-				reminder_bell = SoundLoader.load('content/Bell1.wav')
+				reminder_bell = SoundLoader.load(remind_tone[0])
 				reminder_bell.play()
 		except Exception as e:
 			print(e)
@@ -108,7 +109,7 @@ class Timer:
 		self.app.root.ids.time.text = label_format(self.hours) + ':' + label_format(self.minutes) + ':' + label_format(self.seconds)
 		
 		if self.seconds == 0 and self.minutes == 0 and self.hours == 0: # countdown ended
-			alarm = SoundLoader.load(end_tone)
+			alarm = SoundLoader.load(end_tone[0])
 			alarm.play()
 			self.app.root.ids.play_pause.source = 'img/play.png'
 			self.stop()	
@@ -212,12 +213,11 @@ class SettingsPopup(Widget):
 		super().__init__()
 		self.app = App.get_running_app()
 		
-		
 		tone_label = Label(text='End tone ', size_hint=(None,None))
 		tone_label.pos = (self.app.root.width / 3.3) - (tone_label.width / 2), \
 								(self.app.root.height / 1.4) - (tone_label.height / 2)
 		tone_spinner = Spinner(values=('sitar flute', 'sitar', 'tone 1', 'classical', 'tone 2', 'tone 3'),size_hint=(None,None), \
-								size=(self.app.root.width / 3, self.app.root.height / 18), text=end_tone)
+								size=(self.app.root.width / 3, self.app.root.height / 18), text=end_tone[1])
 		tone_spinner.pos = (self.app.root.width / 1.7) - (tone_spinner.width / 2), \
 									(self.app.root.height / 1.4) - (tone_spinner.height / 2)
 		tone_spinner.bind(text=self.tone_set)
@@ -225,20 +225,22 @@ class SettingsPopup(Widget):
 		notif_label = Label(text='Notif tone ', size_hint=(None,None))
 		notif_label.pos = (self.app.root.width / 3.3) - (tone_label.width / 2), \
 								(self.app.root.height / 1.65) - (tone_label.height / 2)
-		notif_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'), size_hint=(None,None), \
-								size=(self.app.root.width / 3, self.app.root.height / 18))
+		notif_spinner = Spinner(values=('tone 1', 'bells ring', 'bells 1', 'bell 2', 'bell 3d'), size_hint=(None,None), \
+								size=(self.app.root.width / 3, self.app.root.height / 18), text=remind_tone[1])
 		notif_spinner.pos = (self.app.root.width / 1.7) - (notif_spinner.width / 2), \
 									(self.app.root.height / 1.65) - (notif_spinner.height / 2)
+		notif_spinner.bind(text=self.notif_set)
 									
 		background_label = Label(text='Background ', size_hint=(None,None))
 		background_label.pos = (self.app.root.width / 3.3) - (background_label.width / 2), \
 								(self.app.root.height / 2) - (background_label.height / 2)
-		background_spinner = Spinner(values=('tone 1', 'tone 2', 'tone 3', 'tone 4'), size_hint=(None,None), \
-								size=(self.app.root.width / 3, self.app.root.height / 18))
+		background_spinner = Spinner(values=('cyberpunk', 'abstract 1', 'unknown', 'abstract 2', 'abstract 3', 'default?'), size_hint=(None,None), \
+								size=(self.app.root.width / 3, self.app.root.height / 18), text=self.app.background[1])
 		background_spinner.pos = (self.app.root.width / 1.7) - (background_spinner.width / 2), \
 									(self.app.root.height / 2) - (background_spinner.height / 2)
+		background_spinner.bind(text=self.background_set)
 		
-		close_btn = Button(text='[ x ]', size_hint=(None,None), \
+		close_btn = Button(text='close', size_hint=(None,None), \
 									size=(self.app.root.width/6, self.app.root.height/18))
 		close_btn.pos = (self.app.root.width / 1.35) - (close_btn.width / 2), \
 								(self.app.root.height / 5) - (close_btn.height / 2)
@@ -262,15 +264,48 @@ class SettingsPopup(Widget):
 		tone_urls = ['content/sitar_flute_rhythm_2.mp3', 'content/sitar.mp3', 'content/good-morning.mp3', \
 							'content/classical_music.mp3', 'content/bell_sms.mp3', 'content/bell_message.mp3']
 		global end_tone
-		end_tone = tone_urls[spinner.values.index(text)]  # tone_urls ordered same as spinner.values so selecting value will select appropriate url from tone_urls
+		end_tone = [tone_urls[spinner.values.index(text)], text]  # tone_urls ordered same as spinner.values so selecting value will select appropriate url from tone_urls
+		# edit settings database with relevant info so change remains on restart
+		conn = sqlite3.connect('saved_settings.db')
+		cursor = conn.cursor()
+		cursor.execute('''UPDATE settings
+								SET end_tone_url = ?,
+										end_tone = ?''', (end_tone[0], end_tone[1]))
+		conn.commit()
+		conn.close()
 	
+		
+	def notif_set(self, spinner, text):
+		tone_urls = ['content/meditation.mp3', 'content/bells_ringing.mp3', 'content/bells_msg_tone.mp3', \
+							'content/Bell1.wav', 'content/bell_3d_sms.mp3']
+		global remind_tone
+		remind_tone = [tone_urls[spinner.values.index(text)], text]
+		# edit settings database with relevant info so change remains on restart
+		conn = sqlite3.connect('saved_settings.db')
+		cursor = conn.cursor()
+		cursor.execute('''UPDATE settings
+								SET remind_tone_url=?,
+									remind_tone=?''',(remind_tone[0], remind_tone[1]))
+		conn.commit()
+		conn.close()
+		
+	def background_set(self, spinner, text):
+		urls = ['img/background1.jpg','img/background2.jpg', 'img/background3.png', \
+					'img/background4.png', 'img/background6.png', 'img/img3_blur.jpg']
+		self.app.background = [urls[spinner.values.index(text)], text]
+		# edit settings database with relevant info so change remains on restart
+		conn = sqlite3.connect('saved_settings.db')
+		cursor = conn.cursor()
+		cursor.execute('''UPDATE settings SET background=?,background_url=?''', (self.app.background[1], self.app.background[0]))
+		conn.commit()
+		conn.close()
+		
 		
 	def about_dialog(self, instance):
 		label = Label(text='''Meditate is a timer - primarily for meditation use  Mediate was developed using Kivy and Python3, by a novice fellow seeking to further their programming \'expertise\' \n Work is still in progress :) \n\n[i]Copyright © 2018  [b]noTthis?[/b]\nLicensed under GPLv3[/i]''',halign='center', valign='center', markup=True)
 		label.text_size = self.app.root.width / 2.5, self.app.root.height / 2.5
 		popup = Popup(title='About', content=label, size_hint=(0.5,0.5))
 		popup.open()
-		
 
 
 class ChangeButton(Button):
@@ -319,11 +354,29 @@ class SettingsButton(Button):
 
 
 class BreathTimer(App):
+	background = ListProperty([None,None])
 	def build(self):
-		keepScreenOn()
+		global end_tone, remind_tone
+		# database used to store chosen settings so they remain on restart
+		#end_tone_url, end_tone, remind_tone_url, remind_tone, background - columns
+		conn = sqlite3.connect('saved_settings.db')
+		cursor = conn.cursor() # cursor obect required to access database
+		cursor.execute('SELECT end_tone_url FROM settings')
+		end_tone[0] = cursor.fetchone()[0]
+		cursor.execute('SELECT end_tone FROM settings')
+		end_tone[1] = cursor.fetchone()[0]
+		cursor.execute('SELECT remind_tone_url FROM settings')
+		remind_tone[0] = cursor.fetchone()[0]
+		cursor.execute('SELECT remind_tone FROM settings')
+		remind_tone[1] = cursor.fetchone()[0]
+		cursor.execute('SELECT background_url FROM settings')
+		self.background[0] = cursor.fetchone()[0]
+		cursor.execute('SELECT background FROM settings')
+		self.background[1] = cursor.fetchone()[0]
+		print(self.background)
+		conn.close()
 		return Builder.load_file('design.kv')
-		
-		
+	
 		
 		
 BreathTimer().run()
