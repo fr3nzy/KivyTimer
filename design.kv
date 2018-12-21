@@ -1,11 +1,14 @@
 #:kivy 1.10.0
 
+<Widget>:
+	font_name: 'content/Raleway-Medium.ttf'
+
 RelativeLayout:
 	canvas.before:
 		Rectangle:
 			pos: self.pos
 			size: self.size
-			source: 'img/img3_blur.jpg'
+			source: app.background[0]
 	ResetButton:
 		pos_hint: {'center_x': 0.25, 'center_y': 0.8}
 		size_hint: .15, .1
@@ -35,7 +38,6 @@ RelativeLayout:
 		id: time
 		text: '00:00:00'
 		font_size: sp(18)
-		font_name: 'content/Raleway-Medium.ttf'
 		pos_hint: {'center_x': 0.5, 'center_y': 0.68}
 	ProgressBar:
 		id: timer_progress
@@ -43,16 +45,21 @@ RelativeLayout:
 		size_hint: .7, None
 		max: 100
 		value: 0
-	Button:
+	SettingsButton:
 		pos_hint: {'center_x': 0.15, 'center_y': 0.2}
-		size_hint: .15, .1
+		size_hint: .11, .09
 		background_normal: 'img/alpha.png'
 		Image:
-			source: 'img/settings.png'
-			size: self.parent.width, self.parent.height
+			source: 'img/settings2.png'
+			size: self.parent.width-10, self.parent.height+10
 			center: self.parent.center_x,  self.parent.center_y
+	CustomCheckBox:
+		pos_hint: {'x':0.78 ,'center_y':0.2}
+		active: False
+		size_hint: None,None
 	Spinner:
 		id: reminder_spinner
+		disabled: True
 		background_normal: 'img/alpha.png'
 		text: 'Remind every.. [Off]'
 		values: ['30 seconds', '1 minute', '2.5 minutes', '5 minutes', '10 minutes', '15 minutes']
