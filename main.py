@@ -19,7 +19,9 @@ from kivy.uix.popup import Popup
 from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.scrollview import ScrollView
 from kivy.core.audio import SoundLoader
 from kivy.properties import ListProperty
 from kivy.uix.widget import Widget
@@ -33,7 +35,7 @@ from jnius import autoclass
 
 
 # globals for sound urls & names
-end_tone = remind_tone = [None,None] 
+end_tone, remind_tone = [None,None], [None,None]
 # changes to ui must be made in android main thread
 # apparently such is done with such decorator
 # no idea how the android main thread works with kivy main thread..?
@@ -46,11 +48,54 @@ def keepScreenOn():
 
 # TODO
 # if on_pause activated, attempt MediaPlayer usage in background thread when program pauses - by using the simple MediaPlayer call or kivy audiostream?
-# popup appears on first run, letting the user know the program only runs as a gui & back, home, screen off, will quit the app
-# popup has checkbox 'don't show this again'
+# include fonts for raleway so can use bold and italic
+# decrease loading time on startup
 # understand how the ListProperty triggers the app.root.source to update its app.background[0] (which is the listproperty) when ListProperty changes
-# stop app from crashing when for example, confirm button for time entry is pressed with no entered time
 # make number keypad present when entering the time - https://github.com/kivy/kivy/issues/5771
+
+class CustomRelativeLayout(RelativeLayout):
+	# Root widget is now instance of this class, so upon instantiation, object is created from this class
+	# check to see if info popup has been set to 'don't show again', if no, then show popup
+	def __init__(self):
+		super().__init__()
+		conn = sqlite3.connect('saved_settings.db')
+		cursor = conn.cursor()
+		cursor.execute('SELECT show_again FROM settings')
+		show_again = cursor.fetchone()[0]
+		conn.close()
+		print(show_again)
+		if show_again == 'yes':
+			Clock.schedule_once(self.load_popup, 1) # wait for child elements to load so popup isn't covered by them?
+	
+	def load_popup(self, dt):
+		def show_again(instance, value):
+			if value:
+				conn = sqlite3.connect('saved_settings.db')
+				cursor = conn.cursor()
+				cursor.execute('UPDATE settings SET show_again="no"')
+				conn.commit()
+				conn.close()
+		
+		label = Label(text='Due to various limitations, the app will exit if you leave by turning the screen off, or by using any of the android navigation keys. I hope to work around this in future releases. Until then, set the time, and leave the app be whilst you go and meditate :)', valign='top', halign='center', text_size = (Window.width / 2,None), size_hint_y=None)
+		label.texture_update()
+		label.height = label.texture_size[1]
+		print(label.size)
+		scroll = ScrollView(size_hint=(1,0.7), pos_hint={'y':0.3})
+		scroll.add_widget(label)
+		close = Button(text='ok', size_hint=(0.3,0.15), pos_hint={'x':0.7})
+		close.bind(on_press=lambda _: popup.dismiss())
+		show_label = Label(text='[b]don\'t show again[/b]', size_hint=(None,0.1), pos_hint={'y': 0.195, 'x':0.5}, markup=True)
+		checkbox = CheckBox(color=(1,1,1,3), pos_hint={'y': 0.195, 'x':-0.35}, size_hint=(1,0.1))
+		checkbox.bind(active=show_again)
+		relativelayout = RelativeLayout()
+		relativelayout.add_widget(scroll)
+		relativelayout.add_widget(close)
+		relativelayout.add_widget(show_label)
+		relativelayout.add_widget(checkbox)
+		popup = Popup(title='CAUTION', content=relativelayout, size_hint=(0.55,0.5),auto_dismiss=False)
+		popup.open()
+	
+
 
 class Timer:
 	def start(self):
@@ -308,6 +353,7 @@ class SettingsPopup(Widget):
 		popup.open()
 
 
+
 class ChangeButton(Button):
 	def on_release(self):
 		app = App.get_running_app()
@@ -347,6 +393,7 @@ class CustomCheckBox(CheckBox):
 			self.active = False
 
 
+
 class SettingsButton(Button):
 	def on_release(self):
 		SettingsPopup()
@@ -373,10 +420,11 @@ class BreathTimer(App):
 		self.background[0] = cursor.fetchone()[0]
 		cursor.execute('SELECT background FROM settings')
 		self.background[1] = cursor.fetchone()[0]
-		print(self.background)
 		conn.close()
+		keepScreenOn()
 		return Builder.load_file('design.kv')
-	
+		
+		
 		
 		
 BreathTimer().run()
