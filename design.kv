@@ -3,12 +3,12 @@
 <Widget>:
 	font_name: 'content/Raleway-Medium.ttf'
 
-RelativeLayout:
+CustomRelativeLayout:
 	canvas.before:
 		Rectangle:
 			pos: self.pos
 			size: self.size
-			source: app.background[0]
+			source: app.background[0] # change in app.background -> 'source' updates to include update property
 	ResetButton:
 		pos_hint: {'center_x': 0.25, 'center_y': 0.8}
 		size_hint: .15, .1
@@ -55,12 +55,12 @@ RelativeLayout:
 			center: self.parent.center_x,  self.parent.center_y
 	CustomCheckBox:
 		pos_hint: {'x':0.78 ,'center_y':0.2}
-		active: False
+		color: 1,1,1,4
 		size_hint: None,None
 	Spinner:
 		id: reminder_spinner
-		disabled: True
 		background_normal: 'img/alpha.png'
+		disabled: True
 		text: 'Remind every.. [Off]'
 		values: ['30 seconds', '1 minute', '2.5 minutes', '5 minutes', '10 minutes', '15 minutes']
 		size_hint: .5, .07
