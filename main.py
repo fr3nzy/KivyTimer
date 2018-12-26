@@ -10,6 +10,7 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>
+#    launcher Icon made by Freepik from www.flaticon.com 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
 from kivy.app import App
 from kivy.config import Config
@@ -21,7 +22,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.scrollview import ScrollView
+from kivy.uix.scrollview import ScrollView	
 from kivy.core.audio import SoundLoader
 from kivy.properties import ListProperty
 from kivy.uix.widget import Widget
@@ -29,48 +30,57 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.label import Label
 from kivy.uix.checkbox import CheckBox
 from kivy.clock import Clock
-import re, sqlite3
+import re, sqlite3, android, time
 from android.runnable import run_on_ui_thread
 from jnius import autoclass
 
 
 # globals for sound urls & names
 end_tone, remind_tone = [None,None], [None,None]
-# changes to ui must be made in android main thread
-# apparently such is done with such decorator
+# changes to ui must be made in android main thread - decorator moves func to such thread
 # no idea how the android main thread works with kivy main thread..?
+
+# PythonActivity is provided by kivy/p4a; stores a reference to the currently running activity -> mActivity
+CurrentActivity  = autoclass('org.kivy.android.PythonActivity').mActivity
+
 @run_on_ui_thread
 def keepScreenOn():
-	CurrentActivity  = autoclass('org.kivy.android.PythonActivity').mActivity
 	view = CurrentActivity.getWindow().getDecorView()
 	view.setKeepScreenOn(True)
 
 
 # TODO
-# if on_pause activated, attempt MediaPlayer usage in background thread when program pauses - by using the simple MediaPlayer call or kivy audiostream?
-# include fonts for raleway so can use bold and italic
-# decrease loading time on startup
+# service run in background on_pause, provide notification during timer countdown? mediaplayer doesn't seem to release?
+# modify on_start method so values from background service are updated to the gui
+# add rounded edges to icon borders?
+# set up admob - https://www.theseusmedia.com/blogs/code/post/1
+# add option to buy premium ad free version which links to play store 
+# include fonts for raleway so can use bold and italic (idk?)
 # understand how the ListProperty triggers the app.root.source to update its app.background[0] (which is the listproperty) when ListProperty changes
 # make number keypad present when entering the time - https://github.com/kivy/kivy/issues/5771
+
+# run service as soon as timer starts. service is called and countdown begins; using relevant data on the countdown sent to specific files
+# interface (progress bar) need to update per second, along with play/pause callbacks executing appropriate changes in the service
+# call the function, while the function doesn't return true (for pause or countdown ended), call clock.schedule_interval(update progress bar, 1)
 
 class CustomRelativeLayout(RelativeLayout):
 	# Root widget is now instance of this class, so upon instantiation, object is created from this class
 	# check to see if info popup has been set to 'don't show again', if no, then show popup
 	def __init__(self):
 		super().__init__()
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('SELECT show_again FROM settings')
 		show_again = cursor.fetchone()[0]
 		conn.close()
 		print(show_again)
 		if show_again == 'yes':
-			Clock.schedule_once(self.load_popup, 1) # wait for child elements to load so popup isn't covered by them?
+			Clock.schedule_once(self.load_popup, 2) # wait for child elements to load so popup isn't covered by them?
 	
 	def load_popup(self, dt):
 		def show_again(instance, value):
 			if value:
-				conn = sqlite3.connect('saved_settings.db')
+				conn = sqlite3.connect('content/saved_settings.db')
 				cursor = conn.cursor()
 				cursor.execute('UPDATE settings SET show_again="no"')
 				conn.commit()
@@ -79,7 +89,6 @@ class CustomRelativeLayout(RelativeLayout):
 		label = Label(text='Due to various limitations, the app will exit if you leave by turning the screen off, or by using any of the android navigation keys. I hope to work around this in future releases. Until then, set the time, and leave the app be whilst you go and meditate :)', valign='top', halign='center', text_size = (Window.width / 2,None), size_hint_y=None)
 		label.texture_update()
 		label.height = label.texture_size[1]
-		print(label.size)
 		scroll = ScrollView(size_hint=(1,0.7), pos_hint={'y':0.3})
 		scroll.add_widget(label)
 		close = Button(text='ok', size_hint=(0.3,0.15), pos_hint={'x':0.7})
@@ -99,6 +108,7 @@ class CustomRelativeLayout(RelativeLayout):
 
 class Timer:
 	def start(self):
+		self.start_time = time.clock()
 		self.app = App.get_running_app()
 		# countdown timer
 		self.time = self.app.root.ids.time.text # time label
@@ -108,7 +118,7 @@ class Timer:
 		
 		self.current_total = (self.hours*60*60) + (self.minutes*60) + (self.seconds) # total seconds
 		reminder_text = self.app.root.ids.reminder_spinner.text
-		if reminder_text not in 'Remind every.. [Off]':
+		if reminder_text not in 'Remind every.. [Off]' and self.app.root.ids.reminder_spinner.disabled is not True:
 			if reminder_text[2] == 'm' or reminder_text[3] == 'm':	# 1 or 2 digit number 'm'inutes
 				self.reminder = int(reminder_text[0] + reminder_text[1]) * 60  # to seconds
 			else: # 's'econds
@@ -138,7 +148,8 @@ class Timer:
 		def label_format(data): # add '0' before time if only 1 digit present (below 10)
 			return str(data) if len(str(data)) == 2 else '0' + str(data)
 		
-		# reminder alarm -> self.reminder after self.reminder has passed -> (seconds_set - (seconds_set - seconds_passed)) - reminder_value
+		# reminder alarm -> (seconds_set - (seconds_set - seconds_passed)) <- reminder_value remains
+		# after first reminder, seconds set updates to seconds set - reminder
 		try: 
 			with open('content/total_time_set', 'r') as f: 
 				total_seconds = int(f.read())
@@ -160,6 +171,7 @@ class Timer:
 			self.stop()	
 		
 	def stop(self):
+		print('\n\n\n\n\n\n\n\n'+str((time.clock()-self.start_time)/60)+'\n\n\n\n\n\n\n\n\n')
 		self.clock_event.cancel()
 	
 		
@@ -306,12 +318,12 @@ class SettingsPopup(Widget):
 		
 	
 	def tone_set(self, spinner, text):
-		tone_urls = ['content/sitar_flute_rhythm_2.mp3', 'content/sitar.mp3', 'content/good-morning.mp3', \
-							'content/classical_music.mp3', 'content/bell_sms.mp3', 'content/bell_message.mp3']
+		tone_urls = ['content/sitar_flute_rhythm_2.ogg', 'content/sitar.ogg', 'content/good-morning.ogg', \
+							'content/classical_music.ogg', 'content/bell_sms.ogg', 'content/bell_message.ogg']
 		global end_tone
 		end_tone = [tone_urls[spinner.values.index(text)], text]  # tone_urls ordered same as spinner.values so selecting value will select appropriate url from tone_urls
 		# edit settings database with relevant info so change remains on restart
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('''UPDATE settings
 								SET end_tone_url = ?,
@@ -321,12 +333,12 @@ class SettingsPopup(Widget):
 	
 		
 	def notif_set(self, spinner, text):
-		tone_urls = ['content/meditation.mp3', 'content/bells_ringing.mp3', 'content/bells_msg_tone.mp3', \
-							'content/Bell1.wav', 'content/bell_3d_sms.mp3']
+		tone_urls = ['content/meditation.ogg', 'content/bells_ringing.ogg', 'content/bells_msg_tone.ogg', \
+							'content/Bell1.wav', 'content/bell_3d_sms.ogg']
 		global remind_tone
 		remind_tone = [tone_urls[spinner.values.index(text)], text]
 		# edit settings database with relevant info so change remains on restart
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('''UPDATE settings
 								SET remind_tone_url=?,
@@ -339,7 +351,7 @@ class SettingsPopup(Widget):
 					'img/background4.png', 'img/background6.png', 'img/img3_blur.jpg']
 		self.app.background = [urls[spinner.values.index(text)], text]
 		# edit settings database with relevant info so change remains on restart
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('''UPDATE settings SET background=?,background_url=?''', (self.app.background[1], self.app.background[0]))
 		conn.commit()
@@ -355,7 +367,7 @@ class SettingsPopup(Widget):
 
 
 class ChangeButton(Button):
-	def on_release(self):
+	def on_press(self):
 		app = App.get_running_app()
 		if app.root.ids.play_pause.source == 'img/play.png':
 			SetTime().load_popup()
@@ -395,7 +407,7 @@ class CustomCheckBox(CheckBox):
 
 
 class SettingsButton(Button):
-	def on_release(self):
+	def on_press(self):
 		SettingsPopup()
 
 
@@ -406,7 +418,9 @@ class BreathTimer(App):
 		global end_tone, remind_tone
 		# database used to store chosen settings so they remain on restart
 		#end_tone_url, end_tone, remind_tone_url, remind_tone, background - columns
-		conn = sqlite3.connect('saved_settings.db')
+		import os
+		print(os.listdir(os.getcwd()))
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor() # cursor obect required to access database
 		cursor.execute('SELECT end_tone_url FROM settings')
 		end_tone[0] = cursor.fetchone()[0]
@@ -421,8 +435,18 @@ class BreathTimer(App):
 		cursor.execute('SELECT background FROM settings')
 		self.background[1] = cursor.fetchone()[0]
 		conn.close()
+		
+		# splash screen dismissed when app has finished loading - wait for next frame so ui has loaded
+		Clock.schedule_once(lambda _: CurrentActivity.removeLoadingScreen(), 0)
 		keepScreenOn()
 		return Builder.load_file('design.kv')
+		
+	def on_pause(self):
+		service = autoclass('org.test.mindfultimer.ServiceMyservice')
+		# currently running activity stored in mActivity contained in p4a PythonActivity class
+		mActivity = autoclass('org.kivy.android.PythonActivity').mActivity
+		service.start(mActivity, '')
+		return True
 		
 		
 		
