@@ -30,13 +30,15 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.label import Label
 from kivy.uix.checkbox import CheckBox
 from kivy.clock import Clock
-import re, sqlite3, android, time
+import re, android, time, sqlite3
 from android.runnable import run_on_ui_thread
 from jnius import autoclass
 
 
 # globals for sound urls & names
 end_tone, remind_tone = [None,None], [None,None]
+from_service = False # global to indicate if coming to app with background service running
+inpt_seconds = 	''	# global - intital value inputted by the user
 # changes to ui must be made in android main thread - decorator moves func to such thread
 # no idea how the android main thread works with kivy main thread..?
 
@@ -50,68 +52,17 @@ def keepScreenOn():
 
 
 # TODO
-# service run in background on_pause, provide notification during timer countdown? mediaplayer doesn't seem to release?
-# modify on_start method so values from background service are updated to the gui
-# add rounded edges to icon borders?
+# dismiss notification when countdown over, or application exit - add progress bar and buttons to notification?  
 # set up admob - https://www.theseusmedia.com/blogs/code/post/1
 # add option to buy premium ad free version which links to play store 
-# include fonts for raleway so can use bold and italic (idk?)
-# understand how the ListProperty triggers the app.root.source to update its app.background[0] (which is the listproperty) when ListProperty changes
 # make number keypad present when entering the time - https://github.com/kivy/kivy/issues/5771
-
-# run service as soon as timer starts. service is called and countdown begins; using relevant data on the countdown sent to specific files
-# interface (progress bar) need to update per second, along with play/pause callbacks executing appropriate changes in the service
-# call the function, while the function doesn't return true (for pause or countdown ended), call clock.schedule_interval(update progress bar, 1)
-
-class CustomRelativeLayout(RelativeLayout):
-	# Root widget is now instance of this class, so upon instantiation, object is created from this class
-	# check to see if info popup has been set to 'don't show again', if no, then show popup
-	def __init__(self):
-		super().__init__()
-		conn = sqlite3.connect('content/saved_settings.db')
-		cursor = conn.cursor()
-		cursor.execute('SELECT show_again FROM settings')
-		show_again = cursor.fetchone()[0]
-		conn.close()
-		print(show_again)
-		if show_again == 'yes':
-			Clock.schedule_once(self.load_popup, 2) # wait for child elements to load so popup isn't covered by them?
-	
-	def load_popup(self, dt):
-		def show_again(instance, value):
-			if value:
-				conn = sqlite3.connect('content/saved_settings.db')
-				cursor = conn.cursor()
-				cursor.execute('UPDATE settings SET show_again="no"')
-				conn.commit()
-				conn.close()
-		
-		label = Label(text='Due to various limitations, the app will exit if you leave by turning the screen off, or by using any of the android navigation keys. I hope to work around this in future releases. Until then, set the time, and leave the app be whilst you go and meditate :)', valign='top', halign='center', text_size = (Window.width / 2,None), size_hint_y=None)
-		label.texture_update()
-		label.height = label.texture_size[1]
-		scroll = ScrollView(size_hint=(1,0.7), pos_hint={'y':0.3})
-		scroll.add_widget(label)
-		close = Button(text='ok', size_hint=(0.3,0.15), pos_hint={'x':0.7})
-		close.bind(on_press=lambda _: popup.dismiss())
-		show_label = Label(text='[b]don\'t show again[/b]', size_hint=(None,0.1), pos_hint={'y': 0.195, 'x':0.5}, markup=True)
-		checkbox = CheckBox(color=(1,1,1,3), pos_hint={'y': 0.195, 'x':-0.35}, size_hint=(1,0.1))
-		checkbox.bind(active=show_again)
-		relativelayout = RelativeLayout()
-		relativelayout.add_widget(scroll)
-		relativelayout.add_widget(close)
-		relativelayout.add_widget(show_label)
-		relativelayout.add_widget(checkbox)
-		popup = Popup(title='CAUTION', content=relativelayout, size_hint=(0.55,0.5),auto_dismiss=False)
-		popup.open()
-	
-
+# go through the code again and see how to improve, remove unnecessary code etc
 
 class Timer:
 	def start(self):
-		self.start_time = time.clock()
 		self.app = App.get_running_app()
 		# countdown timer
-		self.time = self.app.root.ids.time.text # time label
+		self.time = self.app.root.ids.time.text # time label	
 		self.hours = int(self.time[0] + self.time[1]) # xx:00:00
 		self.minutes = int(self.time[3] + self.time[4]) # 00:xx:00
 		self.seconds = int(self.time[6] + self.time[7])  # 00:00:xx
@@ -124,11 +75,34 @@ class Timer:
 			else: # 's'econds
 				self.reminder = int(reminder_text[0] + reminder_text[1])
 			with open('content/reminder', 'w') as f:
-					f.write(str(self.reminder))
+				f.write(str(self.reminder))
+		else:
+			with open('content/reminder', 'w') as f:
+				f.write('0')
 		
 		self.clock_event = Clock.schedule_interval(self.update_time, 1) # call every second
 				
+				
 	def update_time(self, dt): 
+		def label_format(data): # add '0' before time if only 1 digit present (below 10)
+			return str(data) if len(str(data)) == 2 else '0' + str(data)
+			
+		# if coming to ui when just service was running -
+		# update time label
+		if from_service: # was service running prior to entering app?
+			with open('content/current_total', 'r') as f:
+				self.current_total = int(f.read())
+				print('\n\n\n\n\n\n\n\n'+str(self.current_total),str(inpt_seconds)+'\n\n\n\n\n\n\n\n')
+			self.hours = self.current_total // 3600
+			self.minutes = (self.current_total % 3600) // 60
+			self.seconds = (self.current_total % 3600) % 60	
+			# update label & progress bar
+			self.app.root.ids.timer_progress.value = inpt_seconds - self.current_total
+			self.app.root.ids.time.text = label_format(self.hours) + ':' \
+					+ label_format(self.minutes) + ':' + label_format(self.seconds)
+			global from_service
+			from_service = False # only needs to be set once
+				
 		if self.seconds == 0:
 			if self.minutes > 0:
 				self.minutes -= 1
@@ -139,14 +113,20 @@ class Timer:
 				self.seconds = 60
 			else: # if play is pressed when 00:00:00
 				self.app.root.ids.play_pause.source = 'img/play.png'
+				with open('content/playing?', 'w') as f:
+					f.write('no')
 				return self.stop()
 		
 		self.current_total -= 1 
 		self.seconds -= 1 
 		self.app.root.ids.timer_progress.value += 1
 		
-		def label_format(data): # add '0' before time if only 1 digit present (below 10)
-			return str(data) if len(str(data)) == 2 else '0' + str(data)
+		
+		with open('content/current_total', 'r') as f:
+			print('\n\n\n\n\n\n'+f.read()+'\n\n\n\n\n')
+		# write the current total to file, so if on_pause, service can pick up from there
+		with open('content/current_total', 'w') as f:
+			f.write(str(self.current_total))
 		
 		# reminder alarm -> (seconds_set - (seconds_set - seconds_passed)) <- reminder_value remains
 		# after first reminder, seconds set updates to seconds set - reminder
@@ -168,10 +148,11 @@ class Timer:
 			alarm = SoundLoader.load(end_tone[0])
 			alarm.play()
 			self.app.root.ids.play_pause.source = 'img/play.png'
+			with open('content/playing?', 'w') as f:
+				f.write('no')
 			self.stop()	
 		
 	def stop(self):
-		print('\n\n\n\n\n\n\n\n'+str((time.clock()-self.start_time)/60)+'\n\n\n\n\n\n\n\n\n')
 		self.clock_event.cancel()
 	
 		
@@ -250,16 +231,18 @@ class SetTime(Popup):
 		app = App.get_running_app()
 		# in case user didn't manually set '00'
 		for inpt in [self.hrs_input, self.min_input, self.sec_input]:
-			if inpt.text == '':
+			if inpt.text == '' or inpt.text == '0':
 				inpt.text = '00'
 				
 		app.root.ids.time.text = ':'.join(map(str.strip, [self.hrs_input.text, self.min_input.text, self.sec_input.text]))
 		
-		total_seconds = (int(self.hrs_input.text)*60*60) + (int(self.min_input.text)*60) + int(self.sec_input.text)
+		# inpt_seconds - the intital value inputted by the user
+		global inpt_seconds
+		inpt_seconds = (int(self.hrs_input.text)*60*60) + (int(self.min_input.text)*60) + int(self.sec_input.text)
 		with open('content/total_time_set', 'w') as f:  # total_seconds must not be dependent on play_pause
-			f.write(str(total_seconds))
+			f.write(str(inpt_seconds))
 		
-		app.root.ids.timer_progress.max = total_seconds 
+		app.root.ids.timer_progress.max = inpt_seconds 
 		app.root.ids.timer_progress.value = 0
 		self.close_popup()
 		
@@ -359,7 +342,7 @@ class SettingsPopup(Widget):
 		
 		
 	def about_dialog(self, instance):
-		label = Label(text='''Meditate is a timer - primarily for meditation use  Mediate was developed using Kivy and Python3, by a novice fellow seeking to further their programming \'expertise\' \n Work is still in progress :) \n\n[i]Copyright © 2018  [b]noTthis?[/b]\nLicensed under GPLv3[/i]''',halign='center', valign='center', markup=True)
+		label = Label(text='''Meditate is a timer - primarily for meditation use  Mediate was developed using Kivy and Python3, by a novice fellow seeking to further their programming \'expertise\' \n Work is still in progress :) \n\nCopyright © 2018  [font=/home/tellmewhy/Documents/Code/Kivy/timer/content/TYPEWR_B.TTF]Wistful Creations[/font]\nLicensed under GPLv3''',halign='center', valign='center', markup=True)
 		label.text_size = self.app.root.width / 2.5, self.app.root.height / 2.5
 		popup = Popup(title='About', content=label, size_hint=(0.5,0.5))
 		popup.open()
@@ -379,9 +362,13 @@ class PlayButton(Button, Timer):
 		app = App.get_running_app()
 		if app.root.ids.play_pause.source == 'img/play.png':
 			app.root.ids.play_pause.source = 'img/pause.png'
+			with open('content/playing?', 'w') as f:
+				f.write('yes')
 			self.start()
 		else:
 			app.root.ids.play_pause.source = 'img/play.png'
+			with open('content/playing?', 'w') as f:
+				f.write('no')
 			self.stop()
 			
 
@@ -413,13 +400,18 @@ class SettingsButton(Button):
 
 
 class BreathTimer(App):
-	background = ListProperty([None,None])
+	# properties implement observer pattern
+	# properties used in kvlang are observed by the widget instances - all widget attributes use properties as their values
+	# any change in the subject (ie. properties of the widget attributes) will update the widget attributes bound to the property - (which they are bound to (it's default behaviour))
+	# we can modify what can happen during a change in the property, but by default, the widget observes for a change in the property
+	# so in order to use the observer functionality when setting widget attributes to custom values, we must use the Property class 
+	# so that when a change in the property occurs in the python code, the widget instance will be notified of this and update itself accordingly
+	# if we just used a plain variable, changes in the variable would not be propagated to the widget attributes
+	# - as the variable does not take observers of its own, so the change will not be sent to widget instance 
+	# - for while the content of the variable is bound to the relevant widget attribute, the variable itself is not
+	background = ListProperty([None,None]) 
 	def build(self):
 		global end_tone, remind_tone
-		# database used to store chosen settings so they remain on restart
-		#end_tone_url, end_tone, remind_tone_url, remind_tone, background - columns
-		import os
-		print(os.listdir(os.getcwd()))
 		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor() # cursor obect required to access database
 		cursor.execute('SELECT end_tone_url FROM settings')
@@ -442,11 +434,20 @@ class BreathTimer(App):
 		return Builder.load_file('design.kv')
 		
 	def on_pause(self):
-		service = autoclass('org.test.mindfultimer.ServiceMyservice')
-		# currently running activity stored in mActivity contained in p4a PythonActivity class
-		mActivity = autoclass('org.kivy.android.PythonActivity').mActivity
-		service.start(mActivity, '')
+		# is the countdown in play? don't need to start service if not
+		with open('content/playing?', 'r') as f:
+			if f.read() == 'yes':
+				self.service = autoclass('org.test.mindfultimer.ServiceMyservice')
+				# currently running activity stored in mActivity contained in p4a PythonActivity class
+				self.mActivity = autoclass('org.kivy.android.PythonActivity').mActivity
+				self.service.start(self.mActivity, '')
+				global from_service
+				from_service = True
 		return True
+		
+	def on_resume(self):
+		# if not essentially two countdowns will be in progress - the activity & the service
+		self.service.stop(self.mActivity)
 		
 		
 		
