@@ -1,46 +1,50 @@
-# SoundLoader doesnt seem to work, maybe use some sort of external library to play sound
-# check to see if time between reminders really is reminder
-
-from kivy.core.audio import SoundLoader
 from jnius import autoclass
+from plyer import notification
+import sqlite3
 
+
+mplayer = autoclass('android.media.MediaPlayer')
 SystemClock = autoclass('android.os.SystemClock')
+mediaplayer = mplayer()
 
 
-for i in range(30):
-	print('service started')
-
-with open('content/total_time_set', 'r') as f:
-	current_total = int(f.read())
+# open the file containing the time to continue off from
+with open('content/current_total', 'r') as f:
+	current_total = int(f.read())  # seconds
 	
-# countdown timer
-# count down the seconds, alarm every x seconds, final alarm end of seconds, check every second to see if playing? has changed
-
+notification.notify(title='Countdown in progress', message='tap to open & swiiipe to close this annoying notifcation ;P', app_name='Mindful Timer', timeout=current_total, ticker='timer in progressn')
+	
+# get reminder 
 with open('content/reminder', 'r') as f:
-	reminder = int(f.read()) #str - could be secs or 'none'
-		
-for i in range(current_total):
-	SystemClock.sleep(1000)
-	current_total-=1
+	reminder = int(f.read()) # seconds
 	
-	# reminder alarm -> self.reminder after self.reminder has passed -> (seconds_set - (seconds_set - seconds_passed)) - reminder_value
-	try: 
-		with open('content/total_time_set', 'r') as f: 
-			total_seconds = int(f.read())
-		if (((total_seconds - current_total) == reminder and current_total is not 0)): # not 0 to avoid conflicts with main alarm 
-			with open('content/total_time_set', 'w') as f: 
-				f.write(str(total_seconds - reminder))
-			for i in range(100):
-				SystemClock.sleep(100)
-				print('reminder')
-			reminder_bell = SoundLoader.load('content/Bell1.wav')
-			reminder_bell.play() 
-	except Exception as e: # reminder is 'none'
-		print(e)
+conn = sqlite3.connect('content/saved_settings.db')
+cursor = conn.cursor()
+cursor.execute('SELECT end_tone_url FROM settings')
+end_tone = cursor.fetchone()[0]
+cursor.execute('SELECT remind_tone_url FROM settings')
+remind_tone = cursor.fetchone()[0]
+
+for i in range(current_total):
+	SystemClock.sleep(950)
+	print('\n\n\n\n\n\n'+str(current_total))
+	current_total -= 1
+	
+	with open('content/total_time_set', 'r') as f:
+		if reminder is not 0 and current_total is not 0:
+			if int(f.read()) - current_total == reminder:
+				mediaplayer.reset()
+				mediaplayer.setDataSource(remind_tone)
+				mediaplayer.prepare()
+				mediaplayer.start()
+	with open('content/current_total', 'w') as f:
+		f.write(str(current_total))
 		
-#	if current_total == 0: # countdown ended
-#		alarm = SoundLoader.load('content/meditation_tone.wav')
-#		alarm.play()
-#		self.app.root.ids.play_pause.source = 'img/play.png'
-#		with open('content/playing?', 'w') as f:
-#			f.write('no')'''
+	if current_total is 0: # end 
+		mediaplayer.reset()
+		mediaplayer.setDataSource(end_tone)
+		mediaplayer.prepare()
+		mediaplayer.start()
+	
+SystemClock.sleep(13000)
+mediaplayer.release()
