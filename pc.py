@@ -1,7 +1,7 @@
 from kivy.app import App
 from kivy.config import Config
-Config.set('graphics', 'width', '350')
-Config.set('graphics', 'height', '600')
+Config.set('graphics', 'width', '500')
+Config.set('graphics', 'height', '750')
 from kivy.lang.builder import Builder
 from kivy.core.window import Window
 from kivy.uix.popup import Popup
@@ -18,65 +18,15 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.clock import Clock
-import re, sqlite3
+import re, sqlite3, time
 
 # globals for sound urls & names
 end_tone, remind_tone = [None,None], [None,None]
-# TODO
-# if on_pause activated, attempt MediaPlayer usage in background thread when program pauses - by using the simple MediaPlayer call
-# popup appears on first run, letting the user know the program only runs as a gui & back, home, screen off, will quit the app
-# popup has checkbox 'don't show this again'
-# include fonts for raleway so can use bold and italic
-# understand how the ListProperty triggers the app.root.source to update its app.background[0] (which is the listproperty) when ListProperty changes
-# make number keypad present when entering the time - using autoclass	
+#TODO replace reading/writing total_seconds to file with using global variable?
 
-class CustomRelativeLayout(RelativeLayout):
-	# Root widget is now instance of this class, so upon instantiation, object is created from this class
-	# check to see if info popup has been set to 'don't show again', if no, then show popup
-	def __init__(self):
-		super().__init__()
-		conn = sqlite3.connect('saved_settings.db')
-		cursor = conn.cursor()
-		cursor.execute('SELECT show_again FROM settings')
-		show_again = cursor.fetchone()[0]
-		conn.close()
-		print(show_again)
-		if show_again == 'yes':
-			Clock.schedule_once(self.load_popup, 1) # wait for child elements to load so popup isn't covered by them?
-	
-	def load_popup(self, dt):
-		def show_again(instance, value):
-			if value:
-				conn = sqlite3.connect('saved_settings.db')
-				cursor = conn.cursor()
-				cursor.execute('UPDATE settings SET show_again="no"')
-				conn.commit()
-				conn.close()
-		
-		label = Label(text='Due to various limitations, the app will exit if you leave by turning the screen off, or by using any of the android navigation keys. I hope to work around this in future releases. Until then, set the time, and leave the app be whilst you go and meditate :)', valign='top', halign='center', text_size = (Window.width / 2,None), size_hint_y=None)
-		label.texture_update() # texture doesnt register text unless updated
-		label.height = label.texture_size[1]
-		print(label.size)
-		scroll = ScrollView(size_hint=(1,0.7), pos_hint={'y':0.3})
-		scroll.add_widget(label)
-		close = Button(text='ok', size_hint=(0.3,0.15), pos_hint={'x':0.7})
-		close.bind(on_press=lambda _: popup.dismiss())
-		show_label = Label(text='[b]don\'t show again[/b]', size_hint=(None,0.1), pos_hint={'y': 0.195, 'x':0.5}, markup=True)
-		checkbox = CheckBox(color=(1,1,1,3), pos_hint={'y': 0.195, 'x':-0.35}, size_hint=(1,0.1))
-		checkbox.bind(active=show_again)
-		relativelayout = RelativeLayout()
-		relativelayout.add_widget(scroll)
-		relativelayout.add_widget(close)
-		relativelayout.add_widget(show_label)
-		relativelayout.add_widget(checkbox)
-		popup = Popup(title='CAUTION', content=relativelayout, size_hint=(0.55,0.5),auto_dismiss=False)
-		popup.open()
-			
-	
-		
-	
 class Timer:
 	def start(self):
+		self.start_time = time.perf_counter()
 		self.app = App.get_running_app()
 		# countdown timer
 		self.time = self.app.root.ids.time.text # time label
@@ -86,7 +36,8 @@ class Timer:
 		
 		self.current_total = (self.hours*60*60) + (self.minutes*60) + (self.seconds) # total seconds
 		reminder_text = self.app.root.ids.reminder_spinner.text
-		if reminder_text not in 'Remind every.. [Off]':
+        #TODO make 'Remind every.. [Off]' disappear when checkbutton makes the spinner active, and put it back when spinner is made inactive again. 
+		if reminder_text not in 'Remind every.. [Off]' and self.app.root.ids.reminder_spinner.disabled is False:
 			if reminder_text[2] == 'm' or reminder_text[3] == 'm':	# 1 or 2 digit number 'm'inutes
 				self.reminder = int(reminder_text[0] + reminder_text[1]) * 60  # to seconds
 			else: # 's'econds
@@ -117,7 +68,7 @@ class Timer:
 			return str(data) if len(str(data)) == 2 else '0' + str(data)
 		
 		# reminder alarm -> self.reminder after self.reminder has passed -> (seconds_set - (seconds_set - seconds_passed)) - reminder_value
-		try: 
+		try: # catch 'no self.reminder exists' if no reminder was set
 			with open('content/total_time_set', 'r') as f: 
 				total_seconds = int(f.read())
 			if (((total_seconds - self.current_total) == self.reminder and self.current_total is not 0)): # not 0 to avoid conflicts with main alarm 
@@ -126,18 +77,19 @@ class Timer:
 				reminder_bell = SoundLoader.load(remind_tone[0])
 				reminder_bell.play()
 		except Exception as e:
-			print(e)
+			pass
 		
 		# update label	
 		self.app.root.ids.time.text = label_format(self.hours) + ':' + label_format(self.minutes) + ':' + label_format(self.seconds)
 		
-		if self.seconds == 0 and self.minutes == 0 and self.hours == 0: # countdown ended
+		if self.current_total == 0: # countdown ended
 			alarm = SoundLoader.load(end_tone[0])
 			alarm.play()
 			self.app.root.ids.play_pause.source = 'img/play.png'
 			self.stop()	
 		
 	def stop(self):
+		print('\n\n\n\n\n\n\n\n'+str((time.perf_counter()-self.start_time))+'\n\n\n\n\n\n\n\n\n')
 		self.clock_event.cancel()
 	
 		
@@ -151,7 +103,7 @@ class CustomInput(TextInput):
 		self.input_type = 'number'
 		
 	def insert_text(self, string, from_undo=False):
-		if len(self.text) == 2 and re.compile('0\\d').search(self.text) is None: # is xx already present?
+		if len(self.text) == 2 and re.compile('0\\d').search(self.text) is None: # is xx already present aka not '00'?
 			return # don't allow any more chars to be entered if first digit is not 0
 			
 		if re.compile('\\d').search(string): # is inputted char a digit 0-9? 			
@@ -159,7 +111,8 @@ class CustomInput(TextInput):
 				self.text = '0' + string # add 0 before to keep formatting after simple	
 				return
 			if re.compile('0\\d').search(self.text): # format is 0x?
-				if re.compile('0[0-5]').search(self.text) is None: # format of 2nd char more than 0-5?
+				if re.compile('0[0-5]').search(self.text) is None: # format of 2nd char more than 0-5 - 2nd char because the currently entered 'string' has not been entered into the input yet, not self.text yet, 
+																						# so previously entered value is the x in 0x
 					self.text = '0' + string # remove the original 2nd char as format can't be more than '59'
 				else:	 # format of 2nd char IS 0-5
 					self.text = self.text[-1] + string # remove leading zero
@@ -220,7 +173,7 @@ class SetTime(Popup):
 			if inpt.text == '':
 				inpt.text = '00'
 			
-		app.root.ids.time.text = ':'.join(map(str.strip, [self.hrs_input.text, self.min_input.text, self.sec_input.text]))
+		app.root.ids.time.text = ':'.join([self.hrs_input.text, self.min_input.text, self.sec_input.text])
 		
 		total_seconds = (int(self.hrs_input.text)*60*60) + (int(self.min_input.text)*60) + int(self.sec_input.text)
 		with open('content/total_time_set', 'w') as f:  # total_seconds must not be dependent on play_pause
@@ -285,12 +238,12 @@ class SettingsPopup(Widget):
 		
 	
 	def tone_set(self, spinner, text):
-		tone_urls = ['content/sitar_flute_rhythm_2.mp3', 'content/sitar.mp3', 'content/good-morning.mp3', \
-							'content/classical_music.mp3', 'content/bell_sms.mp3', 'content/bell_message.mp3']
+		tone_urls = ['content/sitar_flute_rhythm_2.ogg', 'content/sitar.ogg', 'content/good-morning.ogg', \
+							'content/classical_music.ogg', 'content/bell_sms.ogg', 'content/bell_message.ogg']
 		global end_tone
 		end_tone = [tone_urls[spinner.values.index(text)], text]  # tone_urls ordered same as spinner.values so selecting value will select appropriate url from tone_urls
 		# edit settings database with relevant info so change remains on restart
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('''UPDATE settings
 								SET end_tone_url = ?,
@@ -300,12 +253,12 @@ class SettingsPopup(Widget):
 	
 		
 	def notif_set(self, spinner, text):
-		tone_urls = ['content/meditation.mp3', 'content/bells_ringing.mp3', 'content/bells_msg_tone.mp3', \
-							'content/Bell1.wav', 'content/bell_3d_sms.mp3']
+		tone_urls = ['content/meditation.ogg', 'content/bells_ringing.ogg', 'content/bells_msg_tone.ogg', \
+							'content/Bell1.wav', 'content/bell_3d_sms.ogg']
 		global remind_tone
 		remind_tone = [tone_urls[spinner.values.index(text)], text]
 		# edit settings database with relevant info so change remains on restart
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('''UPDATE settings
 								SET remind_tone_url=?,
@@ -318,7 +271,7 @@ class SettingsPopup(Widget):
 					'img/background4.png', 'img/background6.png', 'img/img3_blur.jpg']
 		self.app.background = [urls[spinner.values.index(text)], text]
 		# edit settings database with relevant info so change remains on restart
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor()
 		cursor.execute('''UPDATE settings SET background=?,background_url=?''', (self.app.background[1], self.app.background[0]))
 		conn.commit()
@@ -326,7 +279,7 @@ class SettingsPopup(Widget):
 		
 		
 	def about_dialog(self, instance):
-		label = Label(text='''Meditate is a timer - primarily for meditation use  Mediate was developed using Kivy and Python3, by a novice fellow seeking to further their programming \'expertise\' \n Work is still in progress :) \n\n[i]Copyright © 2018  [b]noTthis?[/b]\nLicensed under GPLv3[/i]''',halign='center', valign='center', markup=True)
+		label = Label(text='''Meditate is a timer - primarily for meditation use  Mediate was developed using Kivy and Python3, by a novice fellow seeking to further their programming \'expertise\' \n Work is still in progress :) \n\nCopyright © 2018 [font=content/TYPEWR_B.TTF]Wistful Creations[/font]\nLicensed under GPLv3''',halign='center', valign='center', markup=True)
 		label.text_size = self.app.root.width / 2.5, self.app.root.height / 2.5
 		popup = Popup(title='About', content=label, size_hint=(0.5,0.5))
 		popup.open()
@@ -385,7 +338,7 @@ class BreathTimer(App):
 		global end_tone, remind_tone
 		# database used to store chosen settings so they remain on restart
 		#end_tone_url, end_tone, remind_tone_url, remind_tone, background, background_url, show_again - columns
-		conn = sqlite3.connect('saved_settings.db')
+		conn = sqlite3.connect('content/saved_settings.db')
 		cursor = conn.cursor() # cursor obect required to access database
 		cursor.execute('SELECT remind_tone_url FROM settings')
 		remind_tone[0] = cursor.fetchone()[0]
@@ -400,9 +353,7 @@ class BreathTimer(App):
 		cursor.execute('SELECT background FROM settings')
 		self.background[1] = cursor.fetchone()[0]
 		conn.close()
-		return Builder.load_file('design.kv')
-		
-		
+		return Builder.load_file('design.kv')		
 		
 		
 BreathTimer().run()
